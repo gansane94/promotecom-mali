@@ -588,42 +588,70 @@ def render_stats_tab(promos_all, history, date_from, date_to):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ONGLET RÉSEAUX SOCIAUX
+# ONGLET RÉSEAUX SOCIAUX — contenu scrapé uniquement, aucun lien externe
 # ══════════════════════════════════════════════════════════════════════════════
 def render_social_tab(social_data):
+    total_posts = sum(len(v) for v in social_data.values())
+    st.markdown(f"""
+<div style="background:#0f1520;border:1px solid #1e2a42;border-radius:12px;padding:14px 18px;margin-bottom:18px;font-size:.8rem;color:#8899bb">
+  ⚡ <strong style="color:#e8f0fe">{total_posts} publications</strong> scrapées automatiquement depuis
+  Facebook, X/Twitter et Google News — mise à jour toutes les 15 min.
+</div>""", unsafe_allow_html=True)
+
+    SOURCE_ICON = {
+        "📰 Google News": ("📰","#60a5fa"),
+        "🐦": ("🐦","#1DA1F2"),
+        "📘": ("📘","#4267B2"),
+    }
+
     for op_key in ["orange","moov","telecel"]:
-        links = SOCIAL_LINKS.get(op_key,{})
         color = COLORS.get(op_key,"#fff")
         emoji = OP_EMOJI.get(op_key,"")
         name  = OP_NAMES.get(op_key,"")
-        st.markdown(f"""<div class="social-op-card">
-  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
-    <span style="font-size:1.8rem">{emoji}</span>
-    <div><div style="font-size:1rem;font-weight:800;color:#e8f0fe">{name}</div>
-    <div style="font-size:.73rem;color:#556080">Pages officielles — actualisées automatiquement</div></div>
-  </div>
-  <div>
-    <a class="social-btn btn-fb" href="{links.get('fb','#')}" target="_blank">📘 Facebook</a>
-    <a class="social-btn btn-tw" href="{links.get('tw','#')}" target="_blank">🐦 X / Twitter</a>
-    <a class="social-btn btn-li" href="{links.get('li','#')}" target="_blank">💼 LinkedIn</a>
-    <a class="social-btn btn-ig" href="{links.get('ig','#')}" target="_blank">📸 Instagram</a>
-  </div>""", unsafe_allow_html=True)
-        posts = social_data.get(op_key,[])
-        if posts:
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown(f'<div class="sec-title" style="margin-top:14px">📰 {len(posts)} publications récupérées</div>', unsafe_allow_html=True)
-            for post in posts:
-                url = post.get("url","")
-                st.markdown(f"""<div class="social-post">
-  <div style="font-size:.7rem;color:#556080;margin-bottom:8px">
-    {f'<span style="color:#60a5fa">{_e(post.get("source",""))}</span>' if post.get("source") else ""}
-    {f'· {_e(post.get("date",""))}' if post.get("date") else ""}
-    {f'· <a href="{_e(url)}" target="_blank" style="color:#6366f1">Voir ↗</a>' if url else ""}
-  </div>
-  <div style="font-size:.82rem;color:#8899bb;line-height:1.6">{_e(post.get("text","")[:400])}</div>
+        posts = social_data.get(op_key, [])
+
+        st.markdown(f"""
+<div style="border-left:3px solid {color};padding:8px 0 8px 14px;margin-bottom:8px">
+  <span style="font-size:1.1rem;font-weight:800;color:{color}">{emoji} {name}</span>
+  <span style="font-size:.73rem;color:#556080;margin-left:10px">{len(posts)} publication{"s" if len(posts)!=1 else ""} trouvée{"s" if len(posts)!=1 else ""}</span>
 </div>""", unsafe_allow_html=True)
+
+        if posts:
+            for post in posts:
+                src       = post.get("source","")
+                post_date = post.get("date","")
+                post_txt  = _e(post.get("text","")[:500])
+                post_title= post.get("title","")
+                # Titre distinct du texte ?
+                show_title = post_title and post_title not in post.get("text","")[:len(post_title)+10]
+                title_html = f'<div style="font-size:.82rem;font-weight:600;color:#e8f0fe;margin-bottom:5px">{_e(post_title[:120])}</div>' if show_title else ""
+                date_html  = f'<span style="font-size:.68rem;color:#556080">{_e(post_date)}</span>' if post_date else ""
+                # Couleur source
+                src_color = "#60a5fa"
+                if "Twitter" in src or "\U0001f426" in src:
+                    src_color = "#1DA1F2"
+                elif "Facebook" in src or "\U0001f4d8" in src:
+                    src_color = "#4267B2"
+                elif "Google" in src or "\U0001f4f0" in src:
+                    src_color = "#ea4335"
+
+                st.markdown(
+                    f'<div class="social-post">'
+                    f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+                    f'<span style="font-size:.72rem;font-weight:700;color:{src_color};background:{src_color}15;'
+                    f'padding:3px 8px;border-radius:12px;border:1px solid {src_color}30">{_e(src)}</span>'
+                    f'{date_html}</div>'
+                    f'{title_html}'
+                    f'<div style="font-size:.8rem;color:#8899bb;line-height:1.65">{post_txt}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
         else:
-            st.markdown('<div style="margin-top:10px;font-size:.75rem;color:#556080;font-style:italic">⚡ Publications récupérées automatiquement — mise à jour toutes les 15 min.</div></div>', unsafe_allow_html=True)
+            st.markdown("""
+<div style="background:#0f1520;border:1px dashed #1e2a42;border-radius:10px;padding:16px;text-align:center;font-size:.78rem;color:#556080;margin-bottom:12px">
+  Aucune publication récupérée pour cet opérateur — scraping automatique en cours…
+</div>""", unsafe_allow_html=True)
+
         st.markdown("<br>", unsafe_allow_html=True)
 
 
@@ -679,6 +707,18 @@ def main():
         seg_sel = {"Tous":"all","👤 B2C":"b2c","🏢 B2B":"b2b"}[seg_f]
         cat_rev = {v:k for k,v in CAT_LABELS.items()}
         cat_sel = cat_rev.get(cat_f,"all") if cat_f!="Toutes" else "all"
+
+        # ── TYPE DE PROMO ────────────────────────────────────────────────────
+        st.markdown("**⏱ Type de promo**")
+        PTYPE_LABELS = {
+            "Tous":              "all",
+            "📅 Mensuel":        "mensuel",
+            "📆 Hebdomadaire":   "hebdomadaire",
+            "🌅 Journalier":     "journalier",
+            "🌙 Nocturne":       "nocturne",
+        }
+        ptype_f   = st.selectbox("Type promo", list(PTYPE_LABELS.keys()), label_visibility="collapsed")
+        ptype_sel = PTYPE_LABELS[ptype_f]
 
         st.divider()
 
@@ -754,6 +794,7 @@ def main():
         if op_sel  != "all": r = [p for p in r if p.get("operator")==op_sel]
         if seg_sel != "all": r = [p for p in r if p.get("segment") in (seg_sel,"both")]
         if cat_sel != "all": r = [p for p in r if p.get("category")==cat_sel]
+        if ptype_sel != "all": r = [p for p in r if p.get("promo_type")==ptype_sel]
         if search:
             q = search.lower()
             r = [p for p in r if q in (p.get("title") or "").lower() or q in (p.get("desc") or "").lower()]
@@ -802,13 +843,16 @@ def main():
     try:
         sa_fmt = datetime.fromisoformat(scraped_at).strftime("%d/%m/%Y à %H:%M") if scraped_at else "—"
     except: sa_fmt = "—"
-    st.markdown(f"""<div class="ptm-footer">
-  <p>📡 <strong>PromoTélécom Mali</strong> — Suivi 100% automatique des promotions télécom au Mali</p>
-  <p>Sources : Sites officiels · Facebook · X · LinkedIn · Instagram · Google News</p>
-  <p>Développé avec ❤️ par <strong>Sayoba GANSANE</strong> &nbsp;|&nbsp; © 2025</p>
-  <p style="margin-top:6px;font-size:.71rem">Telecel Mali · Orange Mali · Moov Africa Malitel<br>
-  Dernière MAJ : {sa_fmt} · {stats['total']:,} visites · Dernière visite : {last_v}</p>
-</div>""", unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="ptm-footer">'
+        f'<p>📡 <strong>PromoTélécom Mali</strong> — Suivi 100% automatique des promotions télécom au Mali</p>'
+        f'<p>Sources : Sites officiels · Facebook · X · Google News</p>'
+        f'<p>Développé avec ❤️ par <strong>Sayoba GANSANE</strong> &nbsp;|&nbsp; © 2025</p>'
+        f'<p style="margin-top:6px;font-size:.71rem">Telecel Mali · Orange Mali · Moov Africa Malitel<br>'
+        f'Dernière MAJ : {sa_fmt} · {stats["total"]:,} visites · Dernière visite : {last_v}</p>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
 
 
 if __name__ == "__main__":
