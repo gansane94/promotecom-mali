@@ -36,22 +36,47 @@ HEADERS = {
 }
 TIMEOUT = 10
 
-# URLs officielles des opérateurs (sites rénovés, JS-rendered)
-OPERATOR_URLS = {
+# ── Sites d'actualités tiers (Mali & Afrique) — vraies promos annoncées ──────
+# Ces sites publient les offres des opérateurs avec prix, dates et conditions.
+# Avantage : pages statiques ou légères, pas de JS, pas de blocage.
+NEWS_SOURCES = {
     "orange": [
-        "https://www.orange.ml/offres-et-services/internet",
-        "https://www.orange.ml/offres-et-services",
-        "https://orange.ml",
+        # Sites d'actualités maliens
+        "https://www.maliweb.net/?s=orange+mali+forfait+promo",
+        "https://malijet.com/?s=orange+mali+offre",
+        "https://maliactu.net/?s=orange+mali+promotion",
+        "https://bamada.net/?s=orange+mali+forfait",
+        "https://abamako.com/?s=orange+mali+promo",
+        "https://www.journaldumali.com/?s=orange+mali",
+        # Sites tech Afrique
+        "https://www.africa-news.eu/?s=orange+mali",
+        "https://www.journaldugeek.net/?s=orange+mali+promo",
     ],
     "moov": [
-        "https://www.moovafricamalitel.ml/offres",
-        "https://www.moovafricamalitel.ml",
-        "https://malitel.ml",
+        "https://www.maliweb.net/?s=moov+africa+malitel+forfait",
+        "https://malijet.com/?s=moov+malitel+promo",
+        "https://maliactu.net/?s=moov+africa+mali",
+        "https://bamada.net/?s=moov+africa+malitel",
+        "https://abamako.com/?s=moov+africa+promo",
+        "https://www.journaldumali.com/?s=moov+malitel",
+        "https://www.africa-news.eu/?s=moov+mali",
     ],
     "telecel": [
-        "https://www.telecel.ml/offres",
-        "https://www.telecel.ml",
+        "https://www.maliweb.net/?s=telecel+mali+forfait",
+        "https://malijet.com/?s=telecel+mali+promo",
+        "https://maliactu.net/?s=telecel+mali",
+        "https://bamada.net/?s=telecel+mali+offre",
+        "https://abamako.com/?s=telecel+mali+promo",
+        "https://www.journaldumali.com/?s=telecel+mali",
+        "https://www.africa-news.eu/?s=telecel+mali",
     ],
+}
+
+# Garde aussi les URLs officielles pour référence (onglet Refontes)
+OPERATOR_URLS_OFFICIAL = {
+    "orange":  ["https://www.orange.ml","https://orange.ml"],
+    "moov":    ["https://www.moovafricamalitel.ml","https://malitel.ml"],
+    "telecel": ["https://www.telecel.ml"],
 }
 
 PRICE_RE    = re.compile(r'[\d\s]{1,8}(?:FCFA|F\.?CFA|CFA|Fcfa)', re.I)
@@ -126,40 +151,51 @@ def scrape_all() -> dict:
 # SCRAPING D'UN OPÉRATEUR (cascade automatique)
 # ──────────────────────────────────────────────────────────────────────────────
 def _scrape_operator(op: str, pw_ok: bool):
-    """Tente chaque méthode jusqu'à obtenir des résultats."""
-    urls = OPERATOR_URLS.get(op, [])
+    """
+    Scrape les sites d'actualités tiers pour trouver les promos de l'opérateur.
+    Cascade : sites d'actualités (requests léger) → Playwright si nécessaire → catalogue.
+    """
+    news_urls = NEWS_SOURCES.get(op, [])
+    all_promos = []
+    tried_urls = []
 
-    # 1. Playwright (Chromium headless — gère les sites JS-rendered)
-    if pw_ok:
-        for url in urls:
-            try:
-                html = _fetch_playwright(url)
-                if html and len(html) > 5000:
-                    soup   = BeautifulSoup(html, "html.parser")
-                    promos = _parse_offers(soup, op, url)
-                    if promos:
-                        logger.info(f"[{op}] Playwright ✓ — {url}")
-                        return promos, "scraped", url
-            except Exception as e:
-                logger.debug(f"[{op}] Playwright error on {url}: {e}")
-
-    # 2. requests (sites statiques ou partiellement rendus)
-    for url in urls:
+    # 1. Sites d'actualités tiers — pages statiques, parsables directement
+    for url in news_urls:
         try:
             resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT,
                                 verify=False, allow_redirects=True)
-            if resp.status_code != 200 or len(resp.text) < 4000:
+            if resp.status_code != 200 or len(resp.text) < 2000:
                 continue
             soup   = BeautifulSoup(resp.text, "html.parser")
-            promos = _parse_offers(soup, op, url)
+            promos = _parse_news(soup, op, url)
             if promos:
-                logger.info(f"[{op}] requests ✓ — {url}")
-                return promos, "scraped", url
+                all_promos.extend(promos)
+                tried_urls.append(url)
+                logger.info(f"[{op}] news ✓ — {url} → {len(promos)} promos")
+                if len(all_promos) >= 5:
+                    break
         except Exception as e:
-            logger.debug(f"[{op}] requests error on {url}: {e}")
+            logger.debug(f"[{op}] news error on {url}: {e}")
+
+    if all_promos:
+        return all_promos[:8], "scraped", tried_urls[0] if tried_urls else news_urls[0]
+
+    # 2. Playwright sur les sites d'actualités si requests a échoué
+    if pw_ok:
+        for url in news_urls[:3]:
+            try:
+                html   = _fetch_playwright(url)
+                if html and len(html) > 3000:
+                    soup   = BeautifulSoup(html, "html.parser")
+                    promos = _parse_news(soup, op, url)
+                    if promos:
+                        logger.info(f"[{op}] Playwright news ✓ — {url}")
+                        return promos[:8], "scraped", url
+            except Exception as e:
+                logger.debug(f"[{op}] Playwright news error on {url}: {e}")
 
     # 3. Catalogue offres réelles (fallback garanti)
-    logger.info(f"[{op}] → catalogue offres réelles (sites inaccessibles)")
+    logger.info(f"[{op}] → catalogue (aucun résultat des sites d'actualités)")
     return _catalog(op), "catalog", None
 
 
@@ -190,6 +226,99 @@ def _fetch_playwright(url: str, wait_ms: int = 3000) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # PARSEUR HTML GÉNÉRIQUE
 # ──────────────────────────────────────────────────────────────────────────────
+def _parse_news(soup: BeautifulSoup, op: str, source_url: str) -> list:
+    """
+    Parseur pour pages de résultats de sites d'actualités (Maliweb, Malijet, etc.).
+    Extrait les articles qui mentionnent des promos et en tire des infos structurées.
+    """
+    # Supprimer les éléments non-contenu
+    for tag in soup.find_all(["nav","header","footer","script","style","iframe","svg","aside"]):
+        tag.decompose()
+
+    promos  = []
+    seen    = set()
+    op_name = {"orange":"Orange","moov":"Moov","telecel":"Telecel"}[op]
+
+    # Chercher les blocs d'articles (résultats de recherche)
+    article_selectors = [
+        "article", ".post", ".entry", ".result", ".item",
+        "[class*='article']", "[class*='post']", "[class*='result']",
+        "h2 a", "h3 a", ".titre a",
+    ]
+    articles = []
+    for sel in article_selectors:
+        found = soup.select(sel)
+        if found:
+            articles.extend(found[:10])
+            if len(articles) >= 8:
+                break
+
+    # Fallback : blocs de texte contenant le nom de l'opérateur + prix
+    if not articles:
+        for el in soup.find_all(["div","p","li","section"], limit=100):
+            txt = el.get_text(" ", strip=True)
+            if op_name.lower() in txt.lower() and (PRICE_RE.search(txt) or DATA_RE.search(txt)):
+                articles.append(el)
+
+    for el in articles[:12]:
+        txt = el.get_text(" ", strip=True)
+        if not txt or len(txt) < 20:
+            continue
+        if op_name.lower() not in txt.lower():
+            continue
+
+        # Extraire titre
+        h = el.find(["h1","h2","h3","h4","strong","b","a"])
+        if h and h.get_text(strip=True):
+            title = h.get_text(strip=True)[:100]
+        else:
+            title = txt[:80]
+
+        if not title or title in seen or len(title) < 8:
+            continue
+        seen.add(title)
+
+        pm       = PRICE_RE.search(txt)
+        price    = pm.group(0).strip() if pm else ""
+        vm       = VALIDITY_RE.search(txt)
+        validity = f"{vm.group(1)} {vm.group(2)}s" if vm else ""
+        dm       = DATA_RE.search(txt)
+        data_vol = ""
+        if dm:
+            try:
+                if float(dm.group(1).replace(",",".")) > 0:
+                    data_vol = f"{dm.group(1)} {dm.group(2)}"
+            except ValueError:
+                pass
+
+        # Exclure si vraiment aucune info promo
+        if not price and not data_vol:
+            continue
+
+        tl  = txt.lower()
+        cat = ("data"       if any(w in tl for w in ["go","gb","internet","data","4g","5g"]) else
+               "money"      if any(w in tl for w in ["money","flooz","transfert","cash"]) else
+               "voice"      if any(w in tl for w in ["appel","call","voix","min","illimité"]) else
+               "sms"        if "sms" in tl else
+               "fixe"       if any(w in tl for w in ["fibre","fixe","vsat"]) else
+               "enterprise" if any(w in tl for w in ["entreprise","business","pme"]) else
+               "combo")
+        seg  = "b2b" if any(w in tl for w in ["entreprise","business","pme","pro "]) else "b2c"
+        feats = [l.strip() for l in re.split(r'[.•\n]', txt) if 10 < len(l.strip()) < 100 and l.strip() != title][:4]
+        if data_vol and not any(data_vol in f for f in feats):
+            feats.insert(0, f"{data_vol} internet")
+
+        # Extraire date de publication si disponible
+        date_el = el.find(["time","span","div"], class_=re.compile(r"date|time|pub|post-date", re.I))
+        pub_date = date_el.get("datetime","") or (date_el.get_text(strip=True) if date_el else "") if date_el else ""
+
+        desc = txt[:300] if len(txt) > len(title)+10 else ""
+        promos.append(_make(op, seg, cat, title, desc, price, validity,
+                            feats[:4], source="scraped", source_url=source_url,
+                            start_date=pub_date or None))
+    return promos
+
+
 def _parse_offers(soup: BeautifulSoup, op: str, source_url: str) -> list:
     for tag in soup.find_all(["nav","header","footer","script","style","iframe","svg"]):
         tag.decompose()
@@ -411,56 +540,4 @@ def _catalog(op: str) -> list:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DÉTECTION DU TYPE DE PROMO
-# ──────────────────────────────────────────────────────────────────────────────
-def _promo_type(title: str, validity: str, features: list) -> str:
-    """Détermine le type de promo à partir de la validité et du titre."""
-    combined = (title + " " + validity + " " + " ".join(features or [])).lower()
-    if any(w in combined for w in ["nuit","night","nocturne","00h","minuit","midnight"]):
-        return "nocturne"
-    if any(w in combined for w in ["24 heure","24h","1 jour","journalier","daily","par jour"]):
-        return "journalier"
-    if any(w in combined for w in ["7 jour","7j","semaine","weekly","hebdo"]):
-        return "hebdomadaire"
-    if any(w in combined for w in ["30 jour","30j","mois","mensuel","monthly"]):
-        return "mensuel"
-    # Déduction par durée numérique
-    if validity:
-        m = re.search(r'(\d+)\s*(heure|hour)', validity, re.I)
-        if m and int(m.group(1)) <= 24:
-            return "journalier"
-        m = re.search(r'(\d+)\s*(jour|day)', validity, re.I)
-        if m:
-            d = int(m.group(1))
-            if d <= 1:   return "journalier"
-            if d <= 7:   return "hebdomadaire"
-            if d <= 31:  return "mensuel"
-    return "autre"
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# USINE À PROMOS
-# ──────────────────────────────────────────────────────────────────────────────
-def _make(op, seg, cat, title, desc, price, validity, features,
-          isn=False, ish=False, hl=False, exp=None, contact="", source="catalog", source_url=None):
-    return {
-        "id":         str(uuid.uuid4()),
-        "operator":   op,
-        "segment":    seg,
-        "category":   cat,
-        "title":      title,
-        "desc":       desc,
-        "price":      price,
-        "validity":   validity,
-        "validUntil": exp,
-        "features":   features,
-        "promo_type": _promo_type(title, validity, features),
-        "isNew":      isn,
-        "isHot":      ish,
-        "highlight":  hl,
-        "contact":    contact,
-        "active":     True,
-        "source":     source,
-        "source_url": source_url,
-        "created_at": datetime.now().isoformat(),
-        "updated_at": datetime.now().isoformat(),
-    }
+# ─────────────────────�

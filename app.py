@@ -103,7 +103,18 @@ section[data-testid="stSidebar"]{background:#0f1520;border-right:1px solid #1e2a
 .pcard-title{font-size:.98rem;font-weight:700;margin-bottom:4px;color:#e8f0fe;line-height:1.3}
 .pcard-desc{font-size:.79rem;color:#8899bb;line-height:1.55;margin-bottom:9px}
 .pcard-price{font-size:1.45rem;font-weight:900;margin-bottom:3px}
-.pcard-validity{font-size:.73rem;color:#8899bb;background:#161d2e;padding:3px 8px;border-radius:6px;display:inline-block;margin-bottom:9px}
+.pcard-validity{font-size:.73rem;color:#8899bb;background:#161d2e;padding:3px 8px;border-radius:6px;display:inline-block;margin-bottom:6px}
+.pcard-dates{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.date-chip{font-size:.68rem;padding:3px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px}
+.date-start{background:#22c55e12;color:#4ade80;border:1px solid #22c55e25}
+.date-end{background:#f59e0b12;color:#fbbf24;border:1px solid #f59e0b25}
+.date-end.urgent{background:#ef444418;color:#f87171;border:1px solid #ef444430}
+.date-catalog{background:#6366f112;color:#818cf8;border:1px solid #6366f125;font-size:.65rem;font-style:italic}
+/* Refontes */
+.refonte-op{background:#0f1520;border:1px solid #1e2a42;border-radius:16px;padding:22px;margin-bottom:24px}
+.refonte-url{background:#080c14;border:1px solid #1e2a42;border-radius:8px;padding:8px 14px;font-size:.75rem;color:#60a5fa;font-family:monospace;margin:10px 0;word-break:break-all}
+.refonte-status-live{background:#22c55e12;border:1px solid #22c55e30;border-radius:8px;padding:8px 14px;font-size:.78rem;color:#4ade80;margin:10px 0}
+.refonte-status-catalog{background:#6366f112;border:1px solid #6366f130;border-radius:8px;padding:8px 14px;font-size:.78rem;color:#818cf8;margin:10px 0}
 .features{list-style:none;padding:0;margin:0 0 9px}
 .features li{font-size:.78rem;color:#8899bb;padding:2px 0;display:flex;gap:7px}
 .features li::before{content:"✓";color:#22c55e;font-weight:800;flex-shrink:0}
@@ -383,6 +394,11 @@ def _cd(valid_until):
         return f'<div class="countdown"><span style="color:#556080;font-size:.73rem">⏱ Expire</span><span class="countdown-v{cls}">{txt}</span></div>'
     except: return ""
 
+def _fmt_dt(iso: str, fmt="%d/%m/%Y") -> str:
+    if not iso: return ""
+    try: return datetime.fromisoformat(iso).strftime(fmt)
+    except: return iso[:10]
+
 def card_html(p):
     op  = p.get("operator","telecel")
     seg = p.get("segment","b2c")
@@ -393,35 +409,54 @@ def card_html(p):
     b  += ('<span class="badge badge-b2c">B2C</span>' if seg=="b2c" else
            '<span class="badge badge-b2b">B2B</span>' if seg=="b2b" else
            '<span class="badge badge-b2c">B2C</span><span class="badge badge-b2b">B2B</span>')
-    if p.get("isNew"): b += '<span class="badge badge-new">🆕 NOUVEAU</span>'
-    if p.get("isHot"): b += '<span class="badge badge-hot">🔥 HOT</span>'
+    # Badges NEW/HOT uniquement pour les vraies promos scrapées
+    if p.get("isNew") and src == "scraped": b += '<span class="badge badge-new">🆕 NOUVEAU</span>'
+    if p.get("isHot") and src == "scraped": b += '<span class="badge badge-hot">🔥 HOT</span>'
     src_label = {"scraped":"🌐 Live","catalog":"📋 Catalogue"}.get(src,"📋 Catalogue")
     src_badge = f'<span class="badge badge-src-{src if src in ("scraped","catalog") else "catalog"}">{src_label}</span>'
     feats = "".join(f"<li>{_e(f)}</li>" for f in (p.get("features") or [])[:4])
     contact = (f'<div class="b2b-contact"><strong>📞 Contact B2B</strong>{_e(p["contact"])}</div>'
                if p.get("contact") and seg in ("b2b","both") else "")
+    # Dates
+    sd = _fmt_dt(p.get("start_date",""))
+    ed = _fmt_dt(p.get("end_date","") or p.get("validUntil",""))
+    if src == "catalog":
+        # Offre catalogue : pas de vraies dates promo
+        dates_html = '<div class="date-chip date-catalog">📋 Offre catalogue — dates indicatives</div>'
+    else:
+        parts = []
+        if sd: parts.append(f'<span class="date-chip date-start">▶ Début : {sd}</span>')
+        if ed:
+            try:
+                urgent_cls = " urgent" if (datetime.fromisoformat(p.get("end_date","") or p.get("validUntil","")) - datetime.now()).total_seconds() < 86400 else ""
+            except: urgent_cls = ""
+            parts.append(f'<span class="date-chip date-end{urgent_cls}">⏹ Expire : {ed}</span>')
+        dates_html = "".join(parts)
     wa  = f"📡 *{OP_NAMES.get(op,op).upper()}* — {p.get('title','')}\n"
     if p.get("price"): wa += f"💰 {p['price']}"+(f" / {p['validity']}" if p.get("validity") else "")+"\n"
+    if sd: wa += f"📅 Du {sd}" + (f" au {ed}" if ed else "") + "\n"
     for f in p.get("features") or []: wa += f"• {f}\n"
     if p.get("desc"): wa += p["desc"]+"\n"
     wa += "\n🔗 PromoTélécom Mali — par Sayoba GANSANE"
     wa_link = "https://wa.me/?text=" + urllib.parse.quote(wa)
     src_url = p.get("source_url","")
     src_link = f'<a href="{_e(src_url)}" target="_blank" style="font-size:.65rem;color:#556080">🔗</a>' if src_url else ""
-    return f"""
-<div class="pcard {op}{hl}">
-  <div class="pcard-head"><div class="pcard-badges">{b}{src_badge}</div>{src_link}</div>
-  <div class="pcard-body">
-    <div class="pcard-cat">{CAT_LABELS.get(p.get("category",""),"")}</div>
-    <div class="pcard-title">{_e(p.get("title",""))}</div>
-    {f'<div class="pcard-desc">{_e(p.get("desc",""))}</div>' if p.get("desc") else ""}
-    {f'<div class="pcard-price" style="color:{c}">{_e(p.get("price",""))}</div>' if p.get("price") else ""}
-    {f'<div class="pcard-validity">📅 {_e(p.get("validity",""))}</div>' if p.get("validity") else ""}
-    {f'<ul class="features">{feats}</ul>' if feats else ""}
-    {contact}{_cd(p.get("validUntil"))}
-  </div>
-  <div class="pcard-footer"><a class="wa-btn" href="{wa_link}" target="_blank">📤 Partager sur WhatsApp</a></div>
-</div>"""
+    return (
+        f'<div class="pcard {op}{hl}">'
+        f'<div class="pcard-head"><div class="pcard-badges">{b}{src_badge}</div>{src_link}</div>'
+        f'<div class="pcard-body">'
+        f'<div class="pcard-cat">{CAT_LABELS.get(p.get("category",""),"")}</div>'
+        f'<div class="pcard-title">{_e(p.get("title",""))}</div>'
+        + (f'<div class="pcard-desc">{_e(p.get("desc",""))}</div>' if p.get("desc") else "")
+        + (f'<div class="pcard-price" style="color:{c}">{_e(p.get("price",""))}</div>' if p.get("price") else "")
+        + (f'<div class="pcard-validity">⏱ {_e(p.get("validity",""))}</div>' if p.get("validity") else "")
+        + f'<div class="pcard-dates">{dates_html}</div>'
+        + (f'<ul class="features">{feats}</ul>' if feats else "")
+        + contact + _cd(p.get("validUntil") or p.get("end_date",""))
+        + f'</div>'
+        f'<div class="pcard-footer"><a class="wa-btn" href="{wa_link}" target="_blank">📤 Partager sur WhatsApp</a></div>'
+        f'</div>'
+    )
 
 def render_grid(lst):
     if not lst: st.info("📭 Aucune offre pour ce filtre."); return
@@ -588,6 +623,135 @@ def render_stats_tab(promos_all, history, date_from, date_to):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ONGLET REFONTES — scraping direct des nouveaux sites des opérateurs
+# ══════════════════════════════════════════════════════════════════════════════
+SOURCES_INFO = {
+    "orange": {
+        "name":    "Orange Mali",
+        "color":   "#F7941D",
+        "emoji":   "🟠",
+        "urls": [
+            "https://www.maliweb.net/?s=orange+mali+forfait+promo",
+            "https://malijet.com/?s=orange+mali+offre",
+            "https://maliactu.net/?s=orange+mali+promotion",
+            "https://bamada.net/?s=orange+mali+forfait",
+            "https://abamako.com/?s=orange+mali+promo",
+            "https://www.journaldumali.com/?s=orange+mali",
+        ],
+        "sites": ["Maliweb.net","Malijet.com","Maliactu.net","Bamada.net","Abamako.com","JournalDuMali.com"],
+        "note": "Sources : sites d'actualités maliens — les promos Orange Mali sont annoncées via communiqués de presse et articles.",
+    },
+    "moov": {
+        "name":    "Moov Africa Malitel",
+        "color":   "#0057A8",
+        "emoji":   "🔵",
+        "urls": [
+            "https://www.maliweb.net/?s=moov+africa+malitel+forfait",
+            "https://malijet.com/?s=moov+malitel+promo",
+            "https://maliactu.net/?s=moov+africa+mali",
+            "https://bamada.net/?s=moov+africa+malitel",
+            "https://abamako.com/?s=moov+africa+promo",
+            "https://www.journaldumali.com/?s=moov+malitel",
+        ],
+        "sites": ["Maliweb.net","Malijet.com","Maliactu.net","Bamada.net","Abamako.com","JournalDuMali.com"],
+        "note": "Sources : sites d'actualités maliens — les promos Moov Africa Malitel (ex-Malitel) sont relayées par la presse locale.",
+    },
+    "telecel": {
+        "name":    "Telecel Mali",
+        "color":   "#E30613",
+        "emoji":   "🔴",
+        "urls": [
+            "https://www.maliweb.net/?s=telecel+mali+forfait",
+            "https://malijet.com/?s=telecel+mali+promo",
+            "https://maliactu.net/?s=telecel+mali",
+            "https://bamada.net/?s=telecel+mali+offre",
+            "https://abamako.com/?s=telecel+mali+promo",
+            "https://www.journaldumali.com/?s=telecel+mali",
+        ],
+        "sites": ["Maliweb.net","Malijet.com","Maliactu.net","Bamada.net","Abamako.com","JournalDuMali.com"],
+        "note": "Sources : sites d'actualités maliens — les offres Telecel Mali sont publiées via communiqués et articles de presse.",
+    },
+}
+
+def render_refontes_tab(result):
+    st.markdown(
+        '<div style="background:#0f1520;border:1px solid #1e2a42;border-radius:12px;'
+        'padding:14px 18px;margin-bottom:20px;font-size:.82rem;color:#8899bb">'
+        '🔍 Scraping automatique de <strong style="color:#e8f0fe">sites d\'actualités maliens</strong> '
+        '(Maliweb, Malijet, Maliactu, Bamada, Abamako…). '
+        '🟢 Live = article trouvé avec infos promo · 🟣 Catalogue = aucun article trouvé.'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    scraped_at = result.get("scraped_at","")
+    status     = result.get("status",{})
+    promos     = result.get("promos",[])
+
+    for op in ["orange","moov","telecel"]:
+        info  = SOURCES_INFO[op]
+        color = info["color"]
+        s     = status.get(op,{})
+        src   = s.get("source","catalog")
+        url   = s.get("url","—")
+        op_promos      = [p for p in promos if p.get("operator")==op]
+        scraped_promos = [p for p in op_promos if p.get("source")=="scraped"]
+        catalog_promos = [p for p in op_promos if p.get("source")=="catalog"]
+
+        is_live    = src == "scraped"
+        status_cls = "refonte-status-live" if is_live else "refonte-status-catalog"
+        status_icon = "🟢 ARTICLES TROUVÉS" if is_live else "🟣 CATALOGUE (aucun article)"
+        status_msg  = (f"{len(scraped_promos)} promo(s) extraite(s) d'articles de presse"
+                       if is_live else
+                       f"Aucun article avec info promo — affichage du catalogue ({len(catalog_promos)} offres)")
+
+        st.markdown(
+            f'<div class="refonte-op" style="border-top:3px solid {color}">'
+            f'<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">'
+            f'<span style="font-size:2.2rem">{info["emoji"]}</span>'
+            f'<div><div style="font-size:1.1rem;font-weight:800;color:{color}">{info["name"]}</div>'
+            f'<div style="font-size:.75rem;color:#556080">Dernière recherche : {_fmt_dt(scraped_at, "%d/%m/%Y à %H:%M")}</div></div>'
+            f'</div>'
+            f'<div class="{status_cls}"><strong>{status_icon}</strong> — {status_msg}</div>',
+            unsafe_allow_html=True
+        )
+
+        # Sites sources
+        st.markdown('<div style="font-size:.72rem;color:#556080;margin:10px 0 4px">📰 Sites d\'actualités consultés :</div>', unsafe_allow_html=True)
+        chips = "".join(
+            f'<span style="background:#161d2e;border:1px solid {"#60a5fa" if u==url else "#1e2a42"};'
+            f'border-radius:6px;padding:3px 10px;font-size:.7rem;'
+            f'color:{"#60a5fa" if u==url else "#556080"};margin:3px;display:inline-block">{s}</span>'
+            for u, s in zip(info["urls"], info["sites"])
+        )
+        st.markdown(f'<div style="margin-bottom:10px">{chips}</div>', unsafe_allow_html=True)
+
+        # Note
+        st.markdown(
+            f'<div style="background:#161d2e;border-radius:8px;padding:10px 14px;'
+            f'font-size:.78rem;color:#8899bb;margin:8px 0 14px">{info["note"]}</div>',
+            unsafe_allow_html=True
+        )
+
+        if scraped_promos:
+            st.markdown(
+                f'<div style="font-size:.72rem;color:#4ade80;font-weight:700;margin-bottom:8px">'
+                f'✅ {len(scraped_promos)} promo(s) trouvée(s) dans la presse</div>',
+                unsafe_allow_html=True
+            )
+            render_grid(scraped_promos)
+        elif catalog_promos:
+            st.markdown(
+                f'<div style="font-size:.72rem;color:#818cf8;font-weight:700;margin-bottom:8px">'
+                f'📋 Catalogue ({len(catalog_promos)} offres connues)</div>',
+                unsafe_allow_html=True
+            )
+            render_grid(catalog_promos)
+
+        st.markdown('</div><br>', unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ONGLET RÉSEAUX SOCIAUX — contenu scrapé uniquement, aucun lien externe
 # ══════════════════════════════════════════════════════════════════════════════
 def render_social_tab(social_data):
@@ -708,7 +872,7 @@ def main():
         cat_rev = {v:k for k,v in CAT_LABELS.items()}
         cat_sel = cat_rev.get(cat_f,"all") if cat_f!="Toutes" else "all"
 
-        # ── TYPE DE PROMO ────────────────────────────────────────────────────
+        # Type de promo
         st.markdown("**⏱ Type de promo**")
         PTYPE_LABELS = {
             "Tous":              "all",
@@ -722,15 +886,15 @@ def main():
 
         st.divider()
 
-        # ── FILTRES DATES ────────────────────────────────────────────────────
+        # Filtres dates
         st.markdown("**📅 Période**")
         period_opts = ["Tout","Aujourd'hui","7 derniers jours","Ce mois",
                        "Mois précédent","Mois spécifique","Jour spécifique"]
         period_f = st.selectbox("Période", period_opts, label_visibility="collapsed")
 
-        specific_day  = date.today()
-        month_idx     = date.today().month
-        year_val      = date.today().year
+        specific_day = date.today()
+        month_idx    = date.today().month
+        year_val     = date.today().year
 
         if period_f == "Jour spécifique":
             specific_day = st.date_input("Date", value=date.today(), key="dp_day")
@@ -748,7 +912,7 @@ def main():
                 st.caption(f"📅 Du {date_from.strftime('%d/%m')} au {date_to.strftime('%d/%m/%Y')}")
 
         st.divider()
-        fb_ico = "🟢 Firebase" if use_fb else "🟡 Local JSON"
+        fb_ico    = "🟢 Firebase" if use_fb else "🟡 Local JSON"
         scraped_n = sum(1 for p in promos if p.get("source")=="scraped")
         st.caption(f"**Mode :** {fb_ico}")
         st.caption(f"**Live scraped :** {scraped_n} / {len(promos)}")
@@ -757,28 +921,27 @@ def main():
         st.divider()
         st.caption("Développé par **Sayoba GANSANE** © 2025")
 
-    # ── HEADER ───────────────────────────────────────────────────────────────
+    # Header
     total_social = sum(len(v) for v in social_data.values())
     period_label = ""
     if date_from and date_to:
         period_label = f" · Filtre : {date_from.strftime('%d/%m')}–{date_to.strftime('%d/%m/%Y')}"
-    st.markdown(f"""<div class="ptm-header">
-  <div>
-    <p class="ptm-title">📡 PromoTélécom Mali</p>
-    <p class="ptm-sub">100% automatique · Sites officiels · Facebook · X · LinkedIn · Google News{period_label}</p>
-  </div>
-  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <span class="live-pill"><span class="live-dot"></span>DIRECT</span>
-    <span style="background:#161d2e;border:1px solid #1e2a42;border-radius:20px;padding:5px 14px;font-size:.75rem;color:#8899bb">{len(promos)} offres</span>
-    <span style="background:#22c55e12;border:1px solid #22c55e30;border-radius:20px;padding:5px 14px;font-size:.75rem;color:#4ade80">📱 {total_social} posts sociaux</span>
-    <span style="background:#161d2e;border:1px solid #1e2a42;border-radius:20px;padding:5px 14px;font-size:.75rem;color:#8899bb">👥 {stats['total']:,} visites</span>
-  </div>
-</div>""", unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="ptm-header">'
+        f'<div><p class="ptm-title">📡 PromoTélécom Mali</p>'
+        f'<p class="ptm-sub">100% automatique · Maliweb · Malijet · Maliactu · Bamada · Google News{period_label}</p></div>'
+        f'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+        f'<span class="live-pill"><span class="live-dot"></span>DIRECT</span>'
+        f'<span style="background:#161d2e;border:1px solid #1e2a42;border-radius:20px;padding:5px 14px;font-size:.75rem;color:#8899bb">{len(promos)} offres</span>'
+        f'<span style="background:#22c55e12;border:1px solid #22c55e30;border-radius:20px;padding:5px 14px;font-size:.75rem;color:#4ade80">📱 {total_social} posts</span>'
+        f'<span style="background:#161d2e;border:1px solid #1e2a42;border-radius:20px;padding:5px 14px;font-size:.75rem;color:#8899bb">👥 {stats["total"]:,} visites</span>'
+        f'</div></div>',
+        unsafe_allow_html=True
+    )
 
     render_status(status, scraped_at, next_update)
     render_ticker(promos)
 
-    # Métriques
     c = st.columns(7)
     c[0].metric("🔴 Telecel", sum(1 for p in promos if p.get("operator")=="telecel"))
     c[1].metric("🟠 Orange",  sum(1 for p in promos if p.get("operator")=="orange"))
@@ -788,13 +951,12 @@ def main():
     c[5].metric("🌐 Live",    scraped_n)
     c[6].metric("📱 Sociaux", total_social)
 
-    # ── FILTRAGE ─────────────────────────────────────────────────────────────
     def filt(lst):
         r = lst
-        if op_sel  != "all": r = [p for p in r if p.get("operator")==op_sel]
-        if seg_sel != "all": r = [p for p in r if p.get("segment") in (seg_sel,"both")]
-        if cat_sel != "all": r = [p for p in r if p.get("category")==cat_sel]
-        if ptype_sel != "all": r = [p for p in r if p.get("promo_type")==ptype_sel]
+        if op_sel   != "all": r = [p for p in r if p.get("operator")==op_sel]
+        if seg_sel  != "all": r = [p for p in r if p.get("segment") in (seg_sel,"both")]
+        if cat_sel  != "all": r = [p for p in r if p.get("category")==cat_sel]
+        if ptype_sel!= "all": r = [p for p in r if p.get("promo_type")==ptype_sel]
         if search:
             q = search.lower()
             r = [p for p in r if q in (p.get("title") or "").lower() or q in (p.get("desc") or "").lower()]
@@ -804,8 +966,7 @@ def main():
 
     filtered = filt(promos)
 
-    # ── ONGLETS ───────────────────────────────────────────────────────────────
-    tabs = st.tabs(["🌐 Vue d'ensemble","👤 B2C","🏢 B2B","📊 Statistiques","📱 Réseaux Sociaux"])
+    tabs = st.tabs(["🌐 Vue d'ensemble","👤 B2C","🏢 B2B","📊 Statistiques","🔍 Sources Presse","📱 Réseaux Sociaux"])
 
     with tabs[0]:
         b2c = [p for p in filtered if p.get("segment") in ("b2c","both")]
@@ -833,9 +994,34 @@ def main():
         render_stats_tab(promos, history, date_from, date_to)
 
     with tabs[4]:
+        render_refontes_tab(result)
+
+    with tabs[5]:
         render_social_tab(social_data)
 
-    # ── FOOTER ───────────────────────────────────────────────────────────────
+    # Footer
+    last_v = stats.get("last_visit","—")
+    if last_v and last_v != "—":
+        try: last_v = datetime.fromisoformat(last_v).strftime("%d/%m/%Y à %H:%M")
+        except: pass
+    try:
+        sa_fmt = datetime.fromisoformat(scraped_at).strftime("%d/%m/%Y à %H:%M") if scraped_at else "—"
+    except: sa_fmt = "—"
+    st.markdown(
+        f'<div class="ptm-footer">'
+        f'<p>📡 <strong>PromoTélécom Mali</strong> — Suivi 100% automatique des promotions télécom au Mali</p>'
+        f'<p>Sources : Maliweb · Malijet · Maliactu · Bamada · Abamako · Google News · X/Twitter · Facebook</p>'
+        f'<p>Développé avec ❤️ par <strong>Sayoba GANSANE</strong> &nbsp;|&nbsp; © 2025</p>'
+        f'<p style="margin-top:6px;font-size:.71rem">Telecel Mali · Orange Mali · Moov Africa Malitel<br>'
+        f'Dernière MAJ : {sa_fmt} · {stats["total"]:,} visites · Dernière visite : {last_v}</p>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+
+if __name__ == "__main__":
+    main()
+�───────────────────────
     last_v = stats.get("last_visit","—")
     if last_v and last_v != "—":
         try: last_v = datetime.fromisoformat(last_v).strftime("%d/%m/%Y à %H:%M")
